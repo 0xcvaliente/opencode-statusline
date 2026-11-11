@@ -27,6 +27,9 @@ built-in prompt footer with a single line:
 
 The `[ctx]` bar and cost are hidden on narrow terminals (when OpenCode sets `showDetails` to false).
 
+The line adapts to the terminal width: the `[ctx]` meter shrinks from the full dot bar to `[ctx] 42%`
+and then drops, followed by the line deltas and cost, as space runs out.
+
 ## Not included
 
 Claude Code's **5-hour and weekly rate-limit bars** come from Claude's subscription headers. OpenCode's

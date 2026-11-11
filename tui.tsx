@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin/tui"
 import type { ModelInfo, SessionMessageAssistant, SessionMessageInfo } from "@opencode/client"
+import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 
 /**
@@ -18,11 +19,35 @@ import { createMemo, createSignal, Match, onCleanup, onMount, Show, Switch } fro
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
 const REFRESH_MS = 3000
 const DOTS = 10
+// Columns reserved by the footer's own padding/inset, mirroring OpenCode's frame.
+const FRAME = 4
 
 function basename(path: string) {
   const trimmed = path.replace(/[\\/]+$/, "")
   const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"))
   return index >= 0 ? trimmed.slice(index + 1) : trimmed
+}
+
+/** Approximate rendered width: full-width scripts and emoji occupy two cells. */
+function textWidth(value: string) {
+  let width = 0
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    if (
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f000 && code <= 0x1faff) ||
+      (code >= 0x2600 && code <= 0x27bf)
+    )
+      width += 2
+    else width += 1
+  }
+  return width
 }
 
 /** Mirrors the built-in footer: the newest assistant step with real usage, honoring a revert boundary. */
@@ -64,6 +89,7 @@ function StatusLine(props: {
 }) {
   const context = props.context
   const theme = () => context.theme
+  const dimensions = useTerminalDimensions()
   const [vcs, setVcs] = createSignal<Vcs>()
 
   const session = createMemo(() => (props.sessionID ? context.data.session.get(props.sessionID) : undefined))
@@ -74,7 +100,8 @@ function StatusLine(props: {
     const selected = context.ui.model.current()
     if (!selected) return undefined
     const model = models().find(
-      (item) => item.providerID === selected.providerID && (item.modelID === selected.modelID || item.id === selected.modelID),
+      (item) =>
+        item.providerID === selected.providerID && (item.modelID === selected.modelID || item.id === selected.modelID),
     )
     return model?.name ?? selected.modelID
   })
@@ -89,9 +116,47 @@ function StatusLine(props: {
 
   const cost = createMemo(() => (props.sessionID ? context.data.session.cost(props.sessionID) : 0))
 
-  const barColor = (percent: number) => {
-    if (percent >= 90) return theme().text.feedback.error.base
-    if (percent >= 70) return theme().text.feedback.warning.base
+  const files = () => vcs()?.files ?? 0
+  const added = () => vcs()?.added ?? 0
+  const removed = () => vcs()?.removed ?? 0
+  const percent = () => usage()?.percent ?? 0
+  const dotBar = () => dots(Math.round(percent() / (100 / DOTS)), DOTS)
+
+  // Plain-text mirrors of each segment, used only to decide what fits.
+  const coreText = () =>
+    (modelName() ? `[${modelName()}] ` : "") +
+    `📁 ${basename(location().directory)}` +
+    (branch() ? ` | 🌿 ${branch()}${files() > 0 ? ` *${files()}` : ""}` : "")
+  const linesText = () => ` | +${added()} -${removed()}`
+  const ctxFullText = () => ` | [ctx] ${dotBar()} ${percent()}%`
+  const ctxShortText = () => ` | [ctx] ${percent()}%`
+  const costText = () => ` | ${money.format(cost())}`
+
+  // Fit segments left to right, dropping whatever the terminal cannot hold. The
+  // context meter keeps a compact `[ctx] 42%` form before falling away entirely.
+  const visible = createMemo(() => {
+    let used = textWidth(coreText())
+    const available = Math.max(0, dimensions().width - FRAME)
+    const result: { lines: boolean; ctx: "full" | "short" | null; cost: boolean } = {
+      lines: false,
+      ctx: null,
+      cost: false,
+    }
+    const fits = (text: string) => {
+      if (used + textWidth(text) > available) return false
+      used += textWidth(text)
+      return true
+    }
+    if (!props.showDetails) return result
+    if (added() + removed() > 0) result.lines = fits(linesText())
+    if (usage()) result.ctx = fits(ctxFullText()) ? "full" : fits(ctxShortText()) ? "short" : null
+    if (cost() > 0) result.cost = fits(costText())
+    return result
+  })
+
+  const barColor = (value: number) => {
+    if (value >= 90) return theme().text.feedback.error.base
+    if (value >= 70) return theme().text.feedback.warning.base
     return theme().text.feedback.success.base
   }
 
@@ -143,29 +208,32 @@ function StatusLine(props: {
             <Show when={modelName()}>
               <span style={{ fg: theme().text.action.primary.base }}>[{modelName()}]</span>
             </Show>
-            {" 📁 "}
-            <span style={{ fg: theme().text.base }}>{basename(location().directory)}</span>
+            {modelName() ? " " : ""}
+            <span style={{ fg: theme().text.base }}>{`📁 ${basename(location().directory)}`}</span>
             <Show when={branch()}>
               <span style={{ fg: theme().text.muted }}>{" | "}</span>
-              <span style={{ fg: theme().text.feedback.success.base }}>🌿 {branch()}</span>
-              <Show when={(vcs()?.files ?? 0) > 0}>
-                <span style={{ fg: theme().text.feedback.warning.base }}> *{vcs()?.files}</span>
+              <span style={{ fg: theme().text.feedback.success.base }}>{`🌿 ${branch()}`}</span>
+              <Show when={files() > 0}>
+                <span style={{ fg: theme().text.feedback.warning.base }}>{` *${files()}`}</span>
               </Show>
             </Show>
-            <Show when={(vcs()?.added ?? 0) + (vcs()?.removed ?? 0) > 0}>
+            <Show when={visible().lines}>
               <span style={{ fg: theme().text.muted }}>{" | "}</span>
-              <span style={{ fg: theme().diff.text.added }}>+{vcs()?.added ?? 0}</span>
-              {" "}
-              <span style={{ fg: theme().diff.text.removed }}>-{vcs()?.removed ?? 0}</span>
+              <span style={{ fg: theme().diff.text.added }}>{`+${added()}`}</span>
+              <span style={{ fg: theme().text.muted }}> </span>
+              <span style={{ fg: theme().diff.text.removed }}>{`-${removed()}`}</span>
             </Show>
-            <Show when={props.showDetails && usage()}>
+            <Show when={visible().ctx}>
               <span style={{ fg: theme().text.muted }}>{" | "}</span>
-              <span style={{ fg: theme().text.muted }}>[ctx] </span>
-              <span style={{ fg: barColor(usage()?.percent ?? 0) }}>
-                {dots(Math.round((usage()?.percent ?? 0) / (100 / DOTS)), DOTS)} {usage()?.percent ?? 0}%
-              </span>
+              <span style={{ fg: theme().text.muted }}>{"[ctx] "}</span>
+              <Show when={visible().ctx === "full"}>
+                <span style={{ fg: barColor(percent()) }}>{`${dotBar()} ${percent()}%`}</span>
+              </Show>
+              <Show when={visible().ctx === "short"}>
+                <span style={{ fg: barColor(percent()) }}>{`${percent()}%`}</span>
+              </Show>
             </Show>
-            <Show when={props.showDetails && cost() > 0}>
+            <Show when={visible().cost}>
               <span style={{ fg: theme().text.muted }}>{" | "}</span>
               <span style={{ fg: theme().text.muted }}>{money.format(cost())}</span>
             </Show>
@@ -182,12 +250,7 @@ export default Plugin.define({
     context.ui.slot({
       replace: "prompt.footer",
       render: (props) => (
-        <StatusLine
-          context={context}
-          sessionID={props.sessionID}
-          mode={props.mode}
-          showDetails={props.showDetails}
-        />
+        <StatusLine context={context} sessionID={props.sessionID} mode={props.mode} showDetails={props.showDetails} />
       ),
     })
   },
