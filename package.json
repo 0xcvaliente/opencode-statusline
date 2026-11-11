@@ -1,0 +1,28 @@
+{
+  "name": "opencode-statusline",
+  "version": "1.0.0",
+  "description": "Claude Code-style status line for OpenCode's prompt footer",
+  "type": "module",
+  "exports": {
+    "./tui": "./tui.tsx"
+  },
+  "files": [
+    "tui.tsx",
+    "README.md"
+  ],
+  "dependencies": {
+    "@opencode/plugin": "latest"
+  },
+  "devDependencies": {
+    "@opencode/client": "^2.2.7",
+    "@opentui/core": ">=0.6.6",
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.6.6",
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0"
+  }
+}
