@@ -6,7 +6,7 @@ OpenCode has no external "statusLine command" setting, so this is a **TUI plugin
 built-in prompt footer with a single line:
 
 ```
-[Claude Sonnet 4.5] 📁 my-project | 🌿 main *3 | +12 -4 | [ctx] ● ● ● ● ○ ○ ○ ○ ○ ○ 42% | $0.04
+[Claude Sonnet 4.5] 📁 my-project | 🌿 main *3 | +12 -4 | [ctx] ● ● ● ● ○ ○ ○ ○ ○ ○ 42% · 138K | $0.04
 ```
 
 - `tui.tsx` — the plugin. Copy it to `~/.config/opencode/plugins/statusline/tui.ts` (or install the
@@ -23,6 +23,7 @@ built-in prompt footer with a single line:
 | `*N` | number of changed files |
 | `+A -R` | lines added / removed vs. `HEAD` |
 | `[ctx] ● ● …` | context-window usage, from the latest assistant step ÷ `model.limit.context` |
+| `· 138K` | cumulative session tokens |
 | `$cost` | session cost |
 
 The `[ctx]` bar and cost are hidden on narrow terminals (when OpenCode sets `showDetails` to false).

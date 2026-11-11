@@ -79,6 +79,13 @@ function dots(filled: number, total: number) {
   return parts.join(" ")
 }
 
+/** Compact token count: 1380 → "1.4K", 138000 → "138K", 1200000 → "1.2M". */
+function compact(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}K`
+  return `${value}`
+}
+
 type Vcs = { files: number; added: number; removed: number }
 
 function StatusLine(props: {
@@ -121,15 +128,21 @@ function StatusLine(props: {
   const removed = () => vcs()?.removed ?? 0
   const percent = () => usage()?.percent ?? 0
   const dotBar = () => dots(Math.round(percent() / (100 / DOTS)), DOTS)
-
+  const tokens = () => {
+    const total = session()?.tokens
+    if (!total) return 0
+    return total.input + total.output + total.reasoning + total.cache.read + total.cache.write
+  }
   // Plain-text mirrors of each segment, used only to decide what fits.
   const coreText = () =>
     (modelName() ? `[${modelName()}] ` : "") +
     `📁 ${basename(location().directory)}` +
     (branch() ? ` | 🌿 ${branch()}${files() > 0 ? ` *${files()}` : ""}` : "")
   const linesText = () => ` | +${added()} -${removed()}`
-  const ctxFullText = () => ` | [ctx] ${dotBar()} ${percent()}%`
-  const ctxShortText = () => ` | [ctx] ${percent()}%`
+  const tokSuffix = () => (tokens() > 0 ? ` · ${compact(tokens())}` : "")
+  const ctxFullText = () => ` | [ctx] ${dotBar()} ${percent()}%${tokSuffix()}`
+  const ctxShortText = () => ` | [ctx] ${percent()}%${tokSuffix()}`
+  const ctxTinyText = () => ` | [ctx] ${percent()}%`
   const costText = () => ` | ${money.format(cost())}`
 
   // Fit segments left to right, dropping whatever the terminal cannot hold. The
@@ -137,7 +150,7 @@ function StatusLine(props: {
   const visible = createMemo(() => {
     let used = textWidth(coreText())
     const available = Math.max(0, dimensions().width - FRAME)
-    const result: { lines: boolean; ctx: "full" | "short" | null; cost: boolean } = {
+    const result: { lines: boolean; ctx: "full" | "short" | "tiny" | null; cost: boolean } = {
       lines: false,
       ctx: null,
       cost: false,
@@ -149,7 +162,8 @@ function StatusLine(props: {
     }
     if (!props.showDetails) return result
     if (added() + removed() > 0) result.lines = fits(linesText())
-    if (usage()) result.ctx = fits(ctxFullText()) ? "full" : fits(ctxShortText()) ? "short" : null
+    if (usage())
+      result.ctx = fits(ctxFullText()) ? "full" : fits(ctxShortText()) ? "short" : fits(ctxTinyText()) ? "tiny" : null
     if (cost() > 0) result.cost = fits(costText())
     return result
   })
@@ -227,10 +241,11 @@ function StatusLine(props: {
               <span style={{ fg: theme().text.muted }}>{" | "}</span>
               <span style={{ fg: theme().text.muted }}>{"[ctx] "}</span>
               <Show when={visible().ctx === "full"}>
-                <span style={{ fg: barColor(percent()) }}>{`${dotBar()} ${percent()}%`}</span>
+                <span style={{ fg: barColor(percent()) }}>{`${dotBar()} `}</span>
               </Show>
-              <Show when={visible().ctx === "short"}>
-                <span style={{ fg: barColor(percent()) }}>{`${percent()}%`}</span>
+              <span style={{ fg: barColor(percent()) }}>{`${percent()}%`}</span>
+              <Show when={(visible().ctx === "full" || visible().ctx === "short") && tokens() > 0}>
+                <span style={{ fg: theme().text.muted }}>{` · ${compact(tokens())}`}</span>
               </Show>
             </Show>
             <Show when={visible().cost}>
